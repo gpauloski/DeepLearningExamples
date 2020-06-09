@@ -6,6 +6,7 @@ import torch
 import torch.distributed as dist
 from torch.utils.data.sampler import Sampler
 
+import horovod.torch as hvd
 
 class DistributedSampler(Sampler):
     """Sampler that restricts data loading to a subset of the dataset.
@@ -24,13 +25,15 @@ class DistributedSampler(Sampler):
 
     def __init__(self, dataset, num_replicas=None, rank=None, shuffle=True):
         if num_replicas is None:
-            if not dist.is_available():
-                raise RuntimeError("Requires distributed package to be available")
-            num_replicas = dist.get_world_size()
+            #if not dist.is_available():
+            #    raise RuntimeError("Requires distributed package to be available")
+            #num_replicas = dist.get_world_size()
+            num_replicas = hvd.size()
         if rank is None:
-            if not dist.is_available():
-                raise RuntimeError("Requires distributed package to be available")
-            rank = dist.get_rank()
+            #if not dist.is_available():
+            #    raise RuntimeError("Requires distributed package to be available")
+            #rank = dist.get_rank()
+            rank = hvd.rank()
         self.dataset = dataset
         self.num_replicas = num_replicas
         self.rank = rank

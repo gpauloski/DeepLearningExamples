@@ -27,18 +27,21 @@ from maskrcnn_benchmark.utils.imports import import_file
 from maskrcnn_benchmark.utils.logger import setup_logger
 from maskrcnn_benchmark.utils.miscellaneous import mkdir
 from maskrcnn_benchmark.engine.tester import test
+import horovod.torch as hvd
+
+import kfac
 
 # See if we can use apex.DistributedDataParallel instead of the torch default,
 # and enable mixed-precision via apex.amp
 try:
     from apex import amp
-    use_amp = True
+    use_amp = False #True   hvd
 except ImportError:
     print('Use APEX for multi-precision via apex.amp')
     use_amp = False
 try:
     from apex.parallel import DistributedDataParallel as DDP
-    use_apex_ddp = True
+    use_apex_ddp = False #True hvd
 except ImportError:
     print('Use APEX for better performance')
     use_apex_ddp = False
@@ -59,7 +62,8 @@ def test_and_exchange_map(tester, model, distributed):
 
     if distributed:
         map_tensor = torch.tensor([bbox_map, segm_map], dtype=torch.float32, device=torch.device("cuda"))
-        torch.distributed.broadcast(map_tensor, 0)
+        #torch.distributed.broadcast(map_tensor, 0)
+        hvd.broadcast_(map_tensor, 0)
         bbox_map = map_tensor[0].item()
         segm_map = map_tensor[1].item()
 
@@ -86,13 +90,23 @@ def mlperf_test_early_exit(iteration, iters_per_epoch, tester, model, distribute
     return False
 
 
-def train(cfg, local_rank, distributed):
+def train(cfg, local_rank, distributed, use_kfac=False):
     model = build_detection_model(cfg)
     device = torch.device(cfg.MODEL.DEVICE)
     model.to(device)
 
     optimizer = make_optimizer(cfg, model)
     scheduler = make_lr_scheduler(cfg, optimizer)
+
+    compression = hvd.Compression.fp16 if cfg.DTYPE == "float16" \
+                                       else hvd.Compression.none
+
+    optimizer = hvd.DistributedOptimizer(
+            optimizer, named_parameters=model.named_parameters(),
+            compression=compression, op=hvd.Average)
+
+    hvd.broadcast_parameters(model.state_dict(), root_rank=0)
+    hvd.broadcast_optimizer_state(optimizer, root_rank=0)
 
     if use_amp:
         # Initialize mixed-precision training
@@ -101,15 +115,29 @@ def train(cfg, local_rank, distributed):
         amp_opt_level = 'O1' if use_mixed_precision else 'O0'
         model, optimizer = amp.initialize(model, optimizer, opt_level=amp_opt_level)
 
-    if distributed:
-        if use_apex_ddp:
-            model = DDP(model, delay_allreduce=True)
-        else:
-            model = torch.nn.parallel.DistributedDataParallel(
-                model, device_ids=[local_rank], output_device=local_rank,
-                # this should be removed if we update BatchNorm stats
-                broadcast_buffers=False,
-            )
+    if use_kfac:
+        preconditioner = kfac.KFAC(
+                model, 
+                lr=cfg.SOLVER.BASE_LR, 
+                factor_decay=0.95,
+                damping=0.001,
+                kl_clip=0.001,
+                fac_update_freq=1,
+                kfac_update_freq=10)
+        p_scheduler = make_lr_scheduler(cfg, preconditioner)
+    else:
+        preconditioner = None
+        p_scheduler = None
+
+    #if distributed:
+    #    if use_apex_ddp:
+    #        model = DDP(model, delay_allreduce=True)
+    #    else:
+    #        model = torch.nn.parallel.DistributedDataParallel(
+    #            model, device_ids=[local_rank], output_device=local_rank,
+    #            # this should be removed if we update BatchNorm stats
+    #            broadcast_buffers=False,
+    #        )
 
     arguments = {}
     arguments["iteration"] = 0
@@ -158,14 +186,16 @@ def train(cfg, local_rank, distributed):
         use_amp,
         cfg,
         per_iter_end_callback_fn=per_iter_callback_fn,
+        preconditioner=preconditioner,
+        p_scheduler=p_scheduler
     )
 
     return model
 
 
 def test_model(cfg, model, distributed):
-    if distributed:
-        model = model.module
+    #if distributed:  # hvd 
+    #    model = model.module
     torch.cuda.empty_cache()  # TODO check if it helps
     iou_types = ("bbox",)
     if cfg.MODEL.MASK_ON:
@@ -215,17 +245,26 @@ def main():
         default=None,
         nargs=argparse.REMAINDER,
     )
+    parser.add_argument(
+        "--kfac",
+        help="Use K-FAC preconditioner",
+        action="store_true"
+    )
 
     args = parser.parse_args()
 
-    num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+    hvd.init()
+    num_gpus = hvd.size()
+ 
+    #num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
     args.distributed = num_gpus > 1
 
     if args.distributed:
-        torch.cuda.set_device(args.local_rank)
-        torch.distributed.init_process_group(
-            backend="nccl", init_method="env://"
-        )
+        #torch.cuda.set_device(args.local_rank)
+        torch.cuda.set_device(hvd.local_rank())
+        #torch.distributed.init_process_group(
+        #    backend="nccl", init_method="env://"
+        #)
         synchronize()
 
     cfg.merge_from_file(args.config_file)
@@ -249,7 +288,7 @@ def main():
         logger.info(config_str)
     logger.info("Running with config:\n{}".format(cfg))
 
-    model = train(cfg, args.local_rank, args.distributed)
+    model = train(cfg, args.local_rank, args.distributed, use_kfac=args.kfac)
 
     if not args.skip_test:
         if not cfg.PER_EPOCH_EVAL:
@@ -257,4 +296,5 @@ def main():
 
 
 if __name__ == "__main__":
+    torch.multiprocessing.set_start_method('spawn')
     main()

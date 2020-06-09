@@ -10,8 +10,8 @@ from maskrcnn_benchmark.utils.miscellaneous import mkdir
 from maskrcnn_benchmark.utils.comm import synchronize
 
 def test(cfg, model, distributed):
-    if distributed:
-        model = model.module
+    #if distributed:
+    #    model = model.module
     torch.cuda.empty_cache()  # TODO check if it helps
     iou_types = ("bbox",)
     if cfg.MODEL.MASK_ON:

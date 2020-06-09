@@ -10,6 +10,8 @@ import torch.distributed as dist
 from maskrcnn_benchmark.utils.comm import get_world_size
 from maskrcnn_benchmark.utils.metric_logger import MetricLogger
 
+import horovod.torch as hvd
+
 try:
     from apex import amp
     use_amp = True
@@ -33,8 +35,10 @@ def reduce_loss_dict(loss_dict):
             loss_names.append(k)
             all_losses.append(loss_dict[k])
         all_losses = torch.stack(all_losses, dim=0)
-        dist.reduce(all_losses, dst=0)
-        if dist.get_rank() == 0:
+        #dist.reduce(all_losses, dst=0)
+        hvd.allreduce_(all_losses)
+        #if dist.get_rank() == 0:
+        if hvd.rank() == 0:
             # only main process gets accumulated, so only divide by
             # world_size in this case
             all_losses /= world_size
@@ -54,6 +58,8 @@ def do_train(
     use_amp,
     cfg,
     per_iter_end_callback_fn=None,
+    preconditioner=None,
+    p_scheduler=None
 ):
     logger = logging.getLogger("maskrcnn_benchmark.trainer")
     logger.info("Start training")
@@ -86,19 +92,31 @@ def do_train(
         if use_amp:        
             with amp.scale_loss(losses, optimizer) as scaled_losses:
                 scaled_losses.backward()
+                optimizer.synchronize()  # hvd
+        
         else:
+            # hvd
             losses.backward()
+            optimizer.synchronize()  # hvd
 
         if not cfg.SOLVER.ACCUMULATE_GRAD:
-            optimizer.step()
+            if preconditioner is not None:
+                preconditioner.step()
+            with optimizer.skip_synchronize(): #hvd 
+                optimizer.step()
             scheduler.step()
+            if p_scheduler is not None:
+                p_scheduler.step()
             optimizer.zero_grad()
         else:
             if (iteration + 1) % cfg.SOLVER.ACCUMULATE_STEPS == 0:
                 for param in model.parameters():
                     if param.grad is not None:
                         param.grad.data.div_(cfg.SOLVER.ACCUMULATE_STEPS)
-                optimizer.step()
+                if preconditioner is not None:
+                    preconditioner.step()
+                with optimizer.skip_synchronize():  # hvd
+                    optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
             
