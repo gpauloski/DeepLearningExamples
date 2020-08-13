@@ -1,13 +1,12 @@
 #!/bin/bash
 
-echo "REMOVING /tmp/datasets"
-rm -rf /tmp/datasets
+#echo "REMOVING /tmp/datasets"
+#rm -rf /tmp/datasets
 echo "MAKING /tmp/datasets/coco"
 mkdir -p /tmp/datasets/coco
 echo "ENTERING /tmp/datasets/coco"
-pushd /tmp/datasets/coco
 
-df
+pushd /tmp/datasets/coco
 
 echo "COPYING DATA"
 cp /scratch/05714/jgpaul/datasets/coco/coco_annotations_minival.tgz .

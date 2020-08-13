@@ -50,8 +50,6 @@ def do_coco_evaluation(
 
     results = COCOResults(*iou_types)
     logger.info("Evaluating predictions")
-    # TODO(gpauloski)
-    #dataset.coco.createIndex(use_ext=True)
     dataset.coco.createIndex()
     for iou_type in iou_types:
         with tempfile.NamedTemporaryFile() as f:

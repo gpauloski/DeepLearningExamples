@@ -1,27 +1,21 @@
 #!/bin/bash
 
 # Default values
-NGPUS=2
+NGPUS=4
 NNODES=1
 MASTER=""
-BATCH_SIZE=4
-MAX_ITER=720000
-STEPS="(480000,640000)"
-LR=0.0025
-CONFIG='configs/e2e_mask_rcnn_R_50_FPN_1x.yaml'
+CONFIG="configs/e2e_mask_rcnn_R_50_FPN_1x_1GPU.yaml"
 RESULTS='results'
 LOGFILE='joblog.log'
 
-while getopts ":hcn:N:m:b:i:s:l:" opt; do
+while getopts ":hn:N:m:c:r:" opt; do
   case $opt in
-    h) echo "-h         Display this help message"
-       echo "-n [ngpus] Number of GPUs to use on each node (default 2)"
-       echo "-N [nodes] Number of nodes to use (default 1)"
-       echo "-m [mastr] Address of master node. Only used if NNODES>1"
-       echo "-b [batch] Total batch size (not batch size per gpu or node) (default 4)"
-       echo "-i [miter] Max iterations (default 720000)"
-       echo "-s [steps] Iteration scheduling ex) \"(400,600\" (480000, 640000)"
-       echo "-l [lrate] Learnig rate (default 0.0025)"
+    h) echo "-h          Display this help message"
+       echo "-n [ngpus]  Number of GPUs to use on each node (default 2)"
+       echo "-N [nodes]  Number of nodes to use (default 1)"
+       echo "-m [mastr]  Address of master node. Only used if NNODES>1"
+       echo "-c [cfg]    Config file (default configs/e2e_mask_rcnn_R_50_FPN_1x.yaml)"
+       echo "-r [result] Results dir (default results)"
        exit 0
     ;;
     n) NGPUS="$OPTARG"
@@ -30,52 +24,45 @@ while getopts ":hcn:N:m:b:i:s:l:" opt; do
     ;; 
     m) MASTER="$OPTARG"
     ;;
-    b) BATCH_SIZE="$OPTARG"
+    c) CONFIG="$OPTARG"
     ;;
-    i) MAX_ITER="$OPTARG"
-    ;;
-    s) STEPS="$OPTARG"
-    ;;
-    l) LR="$OPTARG"
+    r) RESULTS="$OPTARG"
     ;;
     \?) echo "Invalid option -$OPTARG" >&2
     ;;
   esac
 done
 
-pushd pytorch
+echo "Using config $CONFIG"
 
 if [ $NNODES -eq 1 ]; then
   time python -m torch.distributed.launch \
       --nproc_per_node=$NGPUS \
     tools/train_net.py \
       --config-file $CONFIG \
-      SOLVER.IMS_PER_BATCH $BATCH_SIZE \
-      TEST.IMS_PER_BATCH $(($NGPUS*$NNODES)) \
-      SOLVER.MAX_ITER $MAX_ITER \
-      SOLVER.STEPS $STEPS \
-      SOLVER.BASE_LR $LR \
+      --kfac \
+      PER_EPOCH_EVAL True \
+      MIN_BBOX_MAP 0.377 \
+      MIN_MASK_MAP 0.342 \
       OUTPUT_DIR $RESULTS \
-      DTYPE "float16" \
-      | tee $LOGFILE
+      DTYPE "float32" \
+      | tee "${RESULTS}/${LOGFILE}"
 else
-  echo "Running on rank $PMI_RANK"
+  echo "Running on rank $OMPI_COMM_WORLD_RANK"
   time python -m torch.distributed.launch \
       --nproc_per_node=$NGPUS \
       --nnodes=$NNODES \
-      --node_rank=$PMI_RANK \
+      --node_rank=$OMPI_COMM_WORLD_RANK \
       --master_addr="$MASTER" \
     tools/train_net.py \
       --config-file $CONFIG \
-      SOLVER.IMS_PER_BATCH $BATCH_SIZE \
-      TEST.IMS_PER_BATCH $(($NGPUS*$NNODES)) \
-      SOLVER.MAX_ITER $MAX_ITER \
-      SOLVER.STEPS $STEPS \
-      SOLVER.BASE_LR $LR \
-      DTYPE "float16" \
+      --kfac \
+      SOLVER.IMS_PER_BATCH 16 \
+      PER_EPOCH_EVAL True \
+      MIN_BBOX_MAP 0.377 \
+      MIN_MASK_MAP 0.342 \
+      DTYPE "float32" \
       OUTPUT_DIR $RESULTS \
-      | tee $LOGFILE
+      | tee "${RESULTS}/${LOGFILE}"
 fi
-
-popd
 

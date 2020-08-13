@@ -27,7 +27,6 @@ from maskrcnn_benchmark.utils.imports import import_file
 from maskrcnn_benchmark.utils.logger import setup_logger
 from maskrcnn_benchmark.utils.miscellaneous import mkdir
 from maskrcnn_benchmark.engine.tester import test
-import horovod.torch as hvd
 
 import kfac
 
@@ -35,13 +34,13 @@ import kfac
 # and enable mixed-precision via apex.amp
 try:
     from apex import amp
-    use_amp = False #True   hvd
+    use_amp = True
 except ImportError:
     print('Use APEX for multi-precision via apex.amp')
     use_amp = False
 try:
     from apex.parallel import DistributedDataParallel as DDP
-    use_apex_ddp = False #True hvd
+    use_apex_ddp = True
 except ImportError:
     print('Use APEX for better performance')
     use_apex_ddp = False
@@ -62,8 +61,7 @@ def test_and_exchange_map(tester, model, distributed):
 
     if distributed:
         map_tensor = torch.tensor([bbox_map, segm_map], dtype=torch.float32, device=torch.device("cuda"))
-        #torch.distributed.broadcast(map_tensor, 0)
-        hvd.broadcast_(map_tensor, 0)
+        torch.distributed.broadcast(map_tensor, 0)
         bbox_map = map_tensor[0].item()
         segm_map = map_tensor[1].item()
 
@@ -98,16 +96,6 @@ def train(cfg, local_rank, distributed, use_kfac=False):
     optimizer = make_optimizer(cfg, model)
     scheduler = make_lr_scheduler(cfg, optimizer)
 
-    compression = hvd.Compression.fp16 if cfg.DTYPE == "float16" \
-                                       else hvd.Compression.none
-
-    optimizer = hvd.DistributedOptimizer(
-            optimizer, named_parameters=model.named_parameters(),
-            compression=compression, op=hvd.Average)
-
-    hvd.broadcast_parameters(model.state_dict(), root_rank=0)
-    hvd.broadcast_optimizer_state(optimizer, root_rank=0)
-
     if use_amp:
         # Initialize mixed-precision training
         use_mixed_precision = cfg.DTYPE == "float16"
@@ -115,29 +103,15 @@ def train(cfg, local_rank, distributed, use_kfac=False):
         amp_opt_level = 'O1' if use_mixed_precision else 'O0'
         model, optimizer = amp.initialize(model, optimizer, opt_level=amp_opt_level)
 
-    if use_kfac:
-        preconditioner = kfac.KFAC(
-                model, 
-                lr=cfg.SOLVER.BASE_LR, 
-                factor_decay=0.95,
-                damping=0.001,
-                kl_clip=0.001,
-                fac_update_freq=1,
-                kfac_update_freq=10)
-        p_scheduler = make_lr_scheduler(cfg, preconditioner)
-    else:
-        preconditioner = None
-        p_scheduler = None
-
-    #if distributed:
-    #    if use_apex_ddp:
-    #        model = DDP(model, delay_allreduce=True)
-    #    else:
-    #        model = torch.nn.parallel.DistributedDataParallel(
-    #            model, device_ids=[local_rank], output_device=local_rank,
-    #            # this should be removed if we update BatchNorm stats
-    #            broadcast_buffers=False,
-    #        )
+    if distributed:
+        if use_apex_ddp:
+            model = DDP(model, delay_allreduce=True)
+        else:
+            model = torch.nn.parallel.DistributedDataParallel(
+                model, device_ids=[local_rank], output_device=local_rank,
+                # this should be removed if we update BatchNorm stats
+                broadcast_buffers=False,
+            )
 
     arguments = {}
     arguments["iteration"] = 0
@@ -174,6 +148,39 @@ def train(cfg, local_rank, distributed, use_kfac=False):
     else:
         per_iter_callback_fn = None
 
+    if use_kfac:
+        if local_rank == 0:
+            print(model)
+        preconditioner = kfac.KFAC(
+                model, 
+                damping=0.01,
+                factor_decay=0.95,
+                inv_update_freq=10,
+                factor_update_freq=1,
+                kl_clip=0.001,
+                lr=cfg.SOLVER.BASE_LR,
+                # Just use data from most recent forward/backward pass 
+                # This is sort of a quick fix for the fact that some Conv2D modules
+                # get called multiple times with differing sized tensors so KFAC
+                # cannot concatenate them together.
+                # This could be a cause of poor performance?
+                # Maybe we should just ignore those Conv2D layers in particular.
+                accumulate_data=True,
+                batch_first=True,
+                compute_factor_in_hook=False,
+                distribute_layer_factors=False,
+                use_eigen_decomp=True,
+                # The extractor has a very large linear layer so we skip it
+                # because inversion will be slow
+                skip_layers=['FPN2MLPFeatureExtractor'],
+                #skip_layers=['FPN2MLPFeatureExtractor', 'Conv2d'],
+                verbose=True
+        )
+        p_scheduler = make_lr_scheduler(cfg, preconditioner)
+    else:
+        preconditioner = None
+        p_scheduler = None
+
     do_train(
         model,
         data_loader,
@@ -194,8 +201,8 @@ def train(cfg, local_rank, distributed, use_kfac=False):
 
 
 def test_model(cfg, model, distributed):
-    #if distributed:  # hvd 
-    #    model = model.module
+    if distributed:
+        model = model.module
     torch.cuda.empty_cache()  # TODO check if it helps
     iou_types = ("bbox",)
     if cfg.MODEL.MASK_ON:
@@ -253,18 +260,14 @@ def main():
 
     args = parser.parse_args()
 
-    hvd.init()
-    num_gpus = hvd.size()
- 
-    #num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+    num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
     args.distributed = num_gpus > 1
 
     if args.distributed:
-        #torch.cuda.set_device(args.local_rank)
-        torch.cuda.set_device(hvd.local_rank())
-        #torch.distributed.init_process_group(
-        #    backend="nccl", init_method="env://"
-        #)
+        torch.cuda.set_device(args.local_rank)
+        torch.distributed.init_process_group(
+            backend="nccl", init_method="env://"
+        )
         synchronize()
 
     cfg.merge_from_file(args.config_file)
@@ -296,5 +299,4 @@ def main():
 
 
 if __name__ == "__main__":
-    torch.multiprocessing.set_start_method('spawn')
     main()

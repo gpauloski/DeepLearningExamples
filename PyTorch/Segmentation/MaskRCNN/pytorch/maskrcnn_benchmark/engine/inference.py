@@ -14,7 +14,6 @@ from ..utils.comm import is_main_process
 from ..utils.comm import all_gather
 from ..utils.comm import synchronize
 
-import horovod.torch as hvd
 
 def compute_on_dataset(model, data_loader, device):
     model.eval()
@@ -69,10 +68,9 @@ def inference(
     # convert to a torch.device for efficiency
     device = torch.device(device)
     num_devices = (
-        hvd.size()
-        #torch.distributed.get_world_size()
-        #if torch.distributed.is_initialized()
-        #else 1
+        torch.distributed.get_world_size()
+        if torch.distributed.is_initialized()
+        else 1
     )
     logger = logging.getLogger("maskrcnn_benchmark.inference")
     dataset = data_loader.dataset

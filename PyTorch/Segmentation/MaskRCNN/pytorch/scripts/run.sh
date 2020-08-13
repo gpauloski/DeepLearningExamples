@@ -1,13 +1,10 @@
 #!/bin/bash
 
-MASTER=$(head -n 1 /tmp/hostfile)
-NGPUS=4
-NNODES=2
-BATCH_SIZE=16
-MAX_ITER=45000
-STEPS="(30000,40000)"
-LR=0.04
+HOSTFILE=/tmp/hostfile
 
-mpirun -hostfile /tmp/hostfile -N $NGPUS \
-  ./run_on_node.sh -n $NGPUS -N $NNODES -m $MASTER -b $BATCH_SIZE \
-           -i $MAX_ITER -s $STEPS -l $LR
+MASTER=$(head -n 1 $HOSTFILE)
+NGPUS=4
+NNODES=$(wc -l $HOSTFILE)
+CONFIG="configs/e2e_mask_rcnn_R_50_FPN_1x_16GPU.yaml"
+
+mpirun -hostfile $HOSTFILE -N 1 ./run_on_node.sh -n $NGPUS -N $NNODES -m $MASTER -c $CONFIG

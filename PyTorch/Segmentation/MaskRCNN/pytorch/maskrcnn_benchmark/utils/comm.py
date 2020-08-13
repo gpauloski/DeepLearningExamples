@@ -10,10 +10,8 @@ import time
 import torch
 import torch.distributed as dist
 
-import horovod.torch as hvd
 
 def get_world_size():
-    return hvd.size()
     if not dist.is_available():
         return 1
     if not dist.is_initialized():
@@ -22,7 +20,6 @@ def get_world_size():
 
 
 def get_rank():
-    return hvd.rank()
     if not dist.is_available():
         return 0
     if not dist.is_initialized():
@@ -39,8 +36,6 @@ def synchronize():
     Helper function to synchronize (barrier) among all processes when
     using distributed training
     """
-    hvd.allreduce(torch.tensor(0.0))
-    return
     if not dist.is_available():
         return
     if not dist.is_initialized():
@@ -71,11 +66,7 @@ def all_gather(data):
     # obtain Tensor size of each rank
     local_size = torch.IntTensor([tensor.numel()]).to("cuda")
     size_list = [torch.IntTensor([0]).to("cuda") for _ in range(world_size)]
-    #dist.all_gather(size_list, local_size)
-    for i, t in enumerate(size_list):
-        if i == get_rank():
-            t.copy_(local_size)
-        hvd.allreduce_(t, op=hvd.Sum)
+    dist.all_gather(size_list, local_size)
     size_list = [int(size.item()) for size in size_list]
     max_size = max(size_list)
 
@@ -84,17 +75,11 @@ def all_gather(data):
     # gathering tensors of different shapes
     tensor_list = []
     for _ in size_list:
-        tensor_list.append(torch.ByteTensor(size=(max_size,)).to("cuda").fill_(0)) # hvd
+        tensor_list.append(torch.ByteTensor(size=(max_size,)).to("cuda"))
     if local_size != max_size:
-        padding = torch.ByteTensor(size=(max_size - local_size,)).to("cuda").fill_(0)
+        padding = torch.ByteTensor(size=(max_size - local_size,)).to("cuda")
         tensor = torch.cat((tensor, padding), dim=0)
-    #dist.all_gather(tensor_list, tensor)
-    for i, t in enumerate(tensor_list):
-        if i == get_rank():
-            t.copy_(tensor)
-        t = t.type(torch.HalfTensor)
-        hvd.allreduce_(t, op=hvd.Sum)
-        tensor_list[i] = t.type(torch.ByteTensor)
+    dist.all_gather(tensor_list, tensor)
 
     data_list = []
     for size, tensor in zip(size_list, tensor_list):
