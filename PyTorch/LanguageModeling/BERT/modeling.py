@@ -43,6 +43,13 @@ import torch.nn.init as init
 
 logger = logging.getLogger(__name__)
 
+try:
+    from torch.cuda.amp import autocast
+    TORCH_FP16 = True
+except:
+    TORCH_FP16 = False
+
+AUTOCAST_FORWARD = False
 PRETRAINED_MODEL_ARCHIVE_MAP = {
     'bert-base-uncased': "https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased.tar.gz",
     'bert-large-uncased': "https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased.tar.gz",
@@ -291,7 +298,7 @@ try:
     from apex.normalization.fused_layer_norm import FusedLayerNormAffineFunction
     #apex.amp.register_float_function(apex.normalization.FusedLayerNorm, 'forward')
     #BertLayerNorm = apex.normalization.FusedLayerNorm
-    APEX_IS_AVAILABLE = True
+    APEX_IS_AVAILABLE = False #True # disable apex
 except ImportError:
     print("Better speed can be achieved with apex installed from https://www.github.com/nvidia/apex.")
     #BertLayerNorm = BertNonFusedLayerNorm
@@ -464,9 +471,15 @@ class BertLayer(nn.Module):
         self.output = BertOutput(config)
 
     def forward(self, hidden_states, attention_mask):
-        attention_output = self.attention(hidden_states, attention_mask)
-        intermediate_output = self.intermediate(attention_output)
-        layer_output = self.output(intermediate_output, attention_output)
+        if AUTOCAST_FORWARD and TORCH_FP16:
+            with autocast():
+                attention_output = self.attention(hidden_states, attention_mask)
+                intermediate_output = self.intermediate(attention_output)
+                layer_output = self.output(intermediate_output, attention_output)
+        else:
+            attention_output = self.attention(hidden_states, attention_mask)
+            intermediate_output = self.intermediate(attention_output)
+            layer_output = self.output(intermediate_output, attention_output)
         return layer_output
 
 class BertEncoder(nn.Module):
@@ -498,19 +511,40 @@ class BertEncoder(nn.Module):
 
     def forward(self, hidden_states, attention_mask):
         all_encoder_layers = []
-
+        default_device = next(self.layer[0].parameters()).device
         if self._checkpoint_activations:
             hidden_states = self.checkpointed_forward(hidden_states, attention_mask)
         else:
             for i,layer_module in enumerate(self.layer):
+                layer_device = next(layer_module.parameters()).device
+                hidden_states = hidden_states.to(layer_device)
+                attention_mask = attention_mask.to(layer_device)
+
                 hidden_states = layer_module(hidden_states, attention_mask)
+                hidden_states = hidden_states.to(default_device)
 
                 if self.output_all_encoded_layers:
                     all_encoder_layers.append(hidden_states)
 
         if not self.output_all_encoded_layers or self._checkpoint_activations:
             all_encoder_layers.append(hidden_states)
+
         return all_encoder_layers
+
+    def split_model(self, devices):
+        if len(devices) > 2:
+            raise ValueError('BertEncoder only supports model parallelism with two GPUS')
+        # our placement strategy makes a few assumptions here
+        # - devices[0] is the default device and data passed to self.forward() is on
+        #   devices[0]
+        # - data returned from self.forward() should be moved to devices[0]
+        # - the layers only switch devices once, i.e. for 4 layers, the device ids are
+        #   0, 0, 1, 1 and not 0, 1, 0, 1. This reduces the number of times we need to
+        #   transfer data between devices
+        self.split_layer = int(len(self.layer) / len(devices))
+        for i, layer in enumerate(self.layer):
+            layer.to(devices[0] if i < self.split_layer else devices[1])
+ 
 
 class BertPooler(nn.Module):
     def __init__(self, config):
@@ -826,6 +860,13 @@ class BertModel(BertPreTrainedModel):
             encoded_layers = encoded_layers[-1:]
         return encoded_layers, pooled_output
 
+    def split_model(self, devices):
+        # embeddings/pooler (i.e. input and output modules) are on first device
+        # to be consistent with the processes default device (i.e. where the data
+        # is loaded and where the loss is calculated)
+        self.embeddings.to(devices[0])
+        self.encoder.split_model(devices)
+        self.pooler.to(devices[0])
 
 class BertForPreTraining(BertPreTrainedModel):
     """BERT model with pre-training heads.
@@ -884,12 +925,21 @@ class BertForPreTraining(BertPreTrainedModel):
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids, attention_mask):
-        encoded_layers, pooled_output = self.bert(input_ids, token_type_ids, attention_mask)
-        sequence_output = encoded_layers[-1]
-        prediction_scores, seq_relationship_score = self.cls(sequence_output, pooled_output)
+        if AUTOCAST_FORWARD and TORCH_FP16:
+            with autocast():
+                encoded_layers, pooled_output = self.bert(input_ids, token_type_ids, attention_mask)
+                sequence_output = encoded_layers[-1]
+                prediction_scores, seq_relationship_score = self.cls(sequence_output, pooled_output)
+        else:
+            encoded_layers, pooled_output = self.bert(input_ids, token_type_ids, attention_mask)
+            sequence_output = encoded_layers[-1]
+            prediction_scores, seq_relationship_score = self.cls(sequence_output, pooled_output)
 
         return prediction_scores, seq_relationship_score
 
+    def split_model(self, devices):
+        self.cls.to(devices[0])
+        self.bert.split_model(devices)
 
 class BertForMaskedLM(BertPreTrainedModel):
     """BERT model with the masked language modeling head.

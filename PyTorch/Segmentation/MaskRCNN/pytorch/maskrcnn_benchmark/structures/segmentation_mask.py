@@ -197,7 +197,7 @@ class SegmentationMask(object):
             selected_polygons = []
             if isinstance(item, torch.Tensor) and \
                     (item.dtype == torch.uint8 or item.dtype == torch.bool):
-                item = item.nonzero()
+                item = torch.nonzero(item, as_tuple=False)
                 item = item.squeeze(1) if item.numel() > 0 else item
                 item = item.tolist()
             for i in item:

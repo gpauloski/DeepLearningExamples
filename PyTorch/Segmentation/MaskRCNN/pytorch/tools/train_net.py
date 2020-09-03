@@ -13,6 +13,7 @@ import logging
 import functools
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from maskrcnn_benchmark.config import cfg
 from maskrcnn_benchmark.data import make_data_loader
 from maskrcnn_benchmark.solver import make_lr_scheduler
@@ -40,10 +41,13 @@ except ImportError:
     use_amp = False
 try:
     from apex.parallel import DistributedDataParallel as DDP
+    from apex.parallel.LARC import LARC
     use_apex_ddp = True
+    use_larc = True
 except ImportError:
     print('Use APEX for better performance')
     use_apex_ddp = False
+    use_larc = False
 
 def test_and_exchange_map(tester, model, distributed):
     results = tester(model=model, distributed=distributed)
@@ -132,6 +136,13 @@ def train(cfg, local_rank, distributed, use_kfac=False):
         start_iter=arguments["iteration"],
     )
 
+    writer = None
+    if get_rank() == 0:
+        #images, _, _ = next(iter(data_loader))
+        #writer = SummaryWriter(log_dir=cfg.OUTPUT_DIR)
+        #writer.add_graph(model, images)
+        pass
+
     checkpoint_period = cfg.SOLVER.CHECKPOINT_PERIOD
 
     # set the callback function to evaluate and potentially
@@ -148,13 +159,15 @@ def train(cfg, local_rank, distributed, use_kfac=False):
     else:
         per_iter_callback_fn = None
 
+    #if use_larc:
+    #    optimizer = LARC(optimizer)
     if use_kfac:
         if local_rank == 0:
             print(model)
         preconditioner = kfac.KFAC(
                 model, 
-                damping=0.01,
-                factor_decay=0.95,
+                damping=0.003,
+                factor_decay=0.99,
                 inv_update_freq=10,
                 factor_update_freq=1,
                 kl_clip=0.001,
@@ -172,7 +185,8 @@ def train(cfg, local_rank, distributed, use_kfac=False):
                 use_eigen_decomp=True,
                 # The extractor has a very large linear layer so we skip it
                 # because inversion will be slow
-                skip_layers=['FPN2MLPFeatureExtractor'],
+                #skip_layers=['FPN2MLPFeatureExtractor', 'Linear'],
+                skip_layers=['FPN2MLPFeatureExtractor', 'CombinedROIHeads', 'RPNModule', 'FPN'],
                 #skip_layers=['FPN2MLPFeatureExtractor', 'Conv2d'],
                 verbose=True
         )
@@ -194,7 +208,8 @@ def train(cfg, local_rank, distributed, use_kfac=False):
         cfg,
         per_iter_end_callback_fn=per_iter_callback_fn,
         preconditioner=preconditioner,
-        p_scheduler=p_scheduler
+        p_scheduler=p_scheduler,
+        writer=writer,
     )
 
     return model

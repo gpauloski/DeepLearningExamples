@@ -19,6 +19,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
@@ -26,6 +27,7 @@ from torch.nn.utils.rnn import pad_packed_sequence
 import seq2seq.data.config as config
 from seq2seq.utils import init_lstm_
 
+from kfac.modules import LSTM
 
 class ResidualRecurrentEncoder(nn.Module):
     """
@@ -58,21 +60,23 @@ class ResidualRecurrentEncoder(nn.Module):
         # 1st LSTM layer, bidirectional
         self.rnn_layers.append(
             nn.LSTM(hidden_size, hidden_size, num_layers=1, bias=True,
-                    batch_first=batch_first, bidirectional=True))
+                 batch_first=batch_first, bidirectional=True))
+                 #init_weight=init_weight))
+        init_lstm_(self.rnn_layers[0], init_weight)
 
         # 2nd LSTM layer, with 2x larger input_size
         self.rnn_layers.append(
-            nn.LSTM((2 * hidden_size), hidden_size, num_layers=1, bias=True,
-                    batch_first=batch_first))
+            LSTM((2 * hidden_size), hidden_size, num_layers=1, bias=True,
+                 batch_first=batch_first, init_weight=init_weight))
 
         # Remaining LSTM layers
         for _ in range(num_layers - 2):
             self.rnn_layers.append(
-                nn.LSTM(hidden_size, hidden_size, num_layers=1, bias=True,
-                        batch_first=batch_first))
+                LSTM(hidden_size, hidden_size, num_layers=1, bias=True,
+                     batch_first=batch_first, init_weight=init_weight))
 
-        for lstm in self.rnn_layers:
-            init_lstm_(lstm, init_weight)
+        #for lstm in self.rnn_layers:
+        #    init_lstm_(lstm, init_weight)
 
         self.dropout = nn.Dropout(p=dropout)
 

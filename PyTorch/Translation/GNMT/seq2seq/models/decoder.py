@@ -28,6 +28,7 @@ import seq2seq.data.config as config
 from seq2seq.models.attention import BahdanauAttention
 from seq2seq.utils import init_lstm_
 
+from kfac.modules import LSTM
 
 class RecurrentAttention(nn.Module):
     """
@@ -51,9 +52,9 @@ class RecurrentAttention(nn.Module):
 
         super(RecurrentAttention, self).__init__()
 
-        self.rnn = nn.LSTM(input_size, hidden_size, num_layers, bias=True,
-                           batch_first=batch_first)
-        init_lstm_(self.rnn, init_weight)
+        self.rnn = LSTM(input_size, hidden_size, num_layers, bias=True,
+                           batch_first=batch_first, init_weight=init_weight)
+        #init_lstm_(self.rnn, init_weight)
 
         self.attn = BahdanauAttention(hidden_size, context_size, context_size,
                                       normalize=True, batch_first=batch_first)
@@ -151,11 +152,11 @@ class ResidualRecurrentDecoder(nn.Module):
         self.rnn_layers = nn.ModuleList()
         for _ in range(num_layers - 1):
             self.rnn_layers.append(
-                nn.LSTM(2 * hidden_size, hidden_size, num_layers=1, bias=True,
-                        batch_first=batch_first))
+                LSTM(2 * hidden_size, hidden_size, num_layers=1, bias=True,
+                     batch_first=batch_first))
 
-        for lstm in self.rnn_layers:
-            init_lstm_(lstm, init_weight)
+        #for lstm in self.rnn_layers:
+        #    init_lstm_(lstm, init_weight)
 
         if embedder is not None:
             self.embedder = embedder

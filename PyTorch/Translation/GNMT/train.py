@@ -66,7 +66,7 @@ def parse_args():
 
     # dataset
     dataset = parser.add_argument_group('dataset setup')
-    dataset.add_argument('--dataset-dir', default='data/wmt16_de_en',
+    dataset.add_argument('--dataset-dir', default='/tmp/data/wmt16_de_en',
                          help='path to the directory with training/test data')
 
     dataset.add_argument('--src-lang',
@@ -558,7 +558,8 @@ def main():
         # evaluate on validation set
         if args.eval:
             logging.info(f'Running validation on dev set')
-            val_loss, val_perf = trainer.evaluate(val_loader)
+            with torch.no_grad():  # greg
+                val_loss, val_perf = trainer.evaluate(val_loader)
 
             # remember best prec@1 and save checkpoint
             if args.rank == 0:
@@ -570,11 +571,12 @@ def main():
             utils.barrier()
             eval_fname = f'eval_epoch_{epoch}'
             eval_path = os.path.join(args.save_dir, eval_fname)
-            _, eval_stats = translator.run(
-                calc_bleu=True,
-                epoch=epoch,
-                eval_path=eval_path,
-                )
+            with torch.no_grad():
+                _, eval_stats = translator.run(
+                    calc_bleu=True,
+                    epoch=epoch,
+                    eval_path=eval_path,
+                    )
             test_bleu = eval_stats['bleu']
             if args.target_bleu and test_bleu >= args.target_bleu:
                 logging.info(f'Target accuracy reached')

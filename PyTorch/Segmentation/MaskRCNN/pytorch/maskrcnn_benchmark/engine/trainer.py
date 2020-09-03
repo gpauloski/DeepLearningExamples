@@ -55,13 +55,36 @@ def do_train(
     cfg,
     per_iter_end_callback_fn=None,
     preconditioner=None,
-    p_scheduler=None
+    p_scheduler=None,
+    writer=None,
 ):
     logger = logging.getLogger("maskrcnn_benchmark.trainer")
     logger.info("Start training")
     meters = MetricLogger(delimiter="  ")
     max_iter = len(data_loader)
     start_iter = arguments["iteration"]
+
+    def log_hist(iteration):
+        if writer is not None:
+            writer.add_scalar('loss', meters.meters['loss'].median, global_step=iteration)
+            writer.add_scalar('lr', optimizer.param_groups[0]['lr'], global_step=iteration)
+            for mname, module in model.named_modules():
+                for pname, param in module.named_parameters():
+                    if param.requires_grad:
+                        writer.add_histogram(mname + '.' + pname, param, iteration)
+                        if hasattr(param, 'grad') and param.grad is not None:
+                            writer.add_histogram(mname + '.' + pname + '.grad', param.grad, iteration)
+
+                #try:
+                #    writer.add_histogram(name + '.weight', module.weight, iteration)
+                #except: pass
+                #try:
+                #    writer.add_histogram(name + '.bias', module.bias, iteration)
+                #except: pass
+                #try:
+                #    writer.add_histogram(name + '.grad', module.weight.grad)
+                #except: pass
+
     model.train()
     start_training_time = time.time()
     end = time.time()
@@ -91,6 +114,7 @@ def do_train(
         else:
             losses.backward()
 
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
         if not cfg.SOLVER.ACCUMULATE_GRAD:
             if preconditioner is not None:
                 preconditioner.step()
@@ -98,7 +122,7 @@ def do_train(
             scheduler.step()
             if p_scheduler is not None:
                 p_scheduler.step()
-            optimizer.zero_grad()
+            #optimizer.zero_grad()
         else:
             if (iteration + 1) % cfg.SOLVER.ACCUMULATE_STEPS == 0:
                 for param in model.parameters():
@@ -110,7 +134,7 @@ def do_train(
                 scheduler.step()
                 if p_scheduler is not None:
                     p_scheduler.step()
-                optimizer.zero_grad()
+                #optimizer.zero_grad()
             
         batch_time = time.time() - end
         end = time.time()
@@ -137,6 +161,11 @@ def do_train(
                     memory=torch.cuda.max_memory_allocated() / 1024.0 / 1024.0,
                 )
             )
+            log_hist(iteration)
+        
+        if not cfg.SOLVER.ACCUMULATE_GRAD or (iteration + 1) % cfg.SOLVER.ACCUMULATE_STEPS == 0:
+            optimizer.zero_grad()
+
         if iteration % checkpoint_period == 0:
             checkpointer.save("model_{:07d}".format(iteration), **arguments)
         if iteration == max_iter:

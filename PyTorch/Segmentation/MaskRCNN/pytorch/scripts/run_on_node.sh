@@ -33,7 +33,17 @@ while getopts ":hn:N:m:c:r:" opt; do
   esac
 done
 
+#module load xl spectrum_mpi
+#module load conda
+#source /scratch/apps/conda/4.8.3/bin/activate pytorch1.2
+#export LD_PRELOAD=/opt/ibm/spectrum_mpi/lib/pami_451/libpami.so:$LD_PRELOAD
+#LOCAL_RANK=$OMPI_COMM_WORLD_RANK
+LOCAL_RANK=$MV2_COMM_WORLD_RANK
+
+mkdir -p $RESULTS
+
 echo "Using config $CONFIG"
+echo NGPUS: $NGPUS NNODES: $NNODES MASTER:$MASTER
 
 if [ $NNODES -eq 1 ]; then
   time python -m torch.distributed.launch \
@@ -48,16 +58,15 @@ if [ $NNODES -eq 1 ]; then
       DTYPE "float32" \
       | tee "${RESULTS}/${LOGFILE}"
 else
-  echo "Running on rank $OMPI_COMM_WORLD_RANK"
+  echo "Running on rank $LOCAL_RANK"
   time python -m torch.distributed.launch \
       --nproc_per_node=$NGPUS \
       --nnodes=$NNODES \
-      --node_rank=$OMPI_COMM_WORLD_RANK \
+      --node_rank=$LOCAL_RANK \
       --master_addr="$MASTER" \
     tools/train_net.py \
       --config-file $CONFIG \
       --kfac \
-      SOLVER.IMS_PER_BATCH 16 \
       PER_EPOCH_EVAL True \
       MIN_BBOX_MAP 0.377 \
       MIN_MASK_MAP 0.342 \

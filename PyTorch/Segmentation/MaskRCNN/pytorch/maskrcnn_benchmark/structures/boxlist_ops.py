@@ -43,9 +43,9 @@ def remove_small_boxes(boxlist, min_size):
     # TODO maybe add an API for querying the ws / hs
     xywh_boxes = boxlist.convert("xywh").bbox
     _, _, ws, hs = xywh_boxes.unbind(dim=1)
-    keep = (
-        (ws >= min_size) & (hs >= min_size)
-    ).nonzero().squeeze(1)
+    keep = torch.nonzero(
+        (ws >= min_size) & (hs >= min_size), as_tuple=False
+    ).squeeze(1)
     return boxlist[keep]
 
 

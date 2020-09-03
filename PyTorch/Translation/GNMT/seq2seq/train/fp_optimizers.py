@@ -99,7 +99,7 @@ class FP16Optimizer:
         for param in self.fp32_params:
             param.requires_grad = True
 
-    def step(self, loss, optimizer, scheduler, update=True):
+    def step(self, loss, optimizer, scheduler, update=True, preconditioner=None, p_scheduler=None):
         """
         Performs one step of the optimizer.
         Applies loss scaling, computes gradients in fp16, converts gradients to
@@ -170,7 +170,7 @@ class FP32Optimizer:
         self.model = model
         self.model.zero_grad()
 
-    def step(self, loss, optimizer, scheduler, update=True):
+    def step(self, loss, optimizer, scheduler, update=True, preconditioner=None, p_scheduler=None):
         """
         Performs one step of the optimizer.
 
@@ -183,6 +183,10 @@ class FP32Optimizer:
             if self.grad_clip != float('inf'):
                 clip_grad_norm_(self.model.parameters(), self.grad_clip)
             scheduler.step()
+            if p_scheduler is not None:
+                p_scheduler.step()
+            if preconditioner is not None:
+                preconditioner.step()
             optimizer.step()
             self.model.zero_grad()
 
@@ -219,7 +223,7 @@ class AMPOptimizer:
         self.model = model
         self.model.zero_grad()
 
-    def step(self, loss, optimizer, scheduler, update=True):
+    def step(self, loss, optimizer, scheduler, update=True, preconditioner=None, p_scheduler=None):
         """
         Performs one step of the optimizer.
 

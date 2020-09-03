@@ -38,6 +38,7 @@ from seq2seq.train.lr_scheduler import WarmupMultiStepLR
 from seq2seq.utils import AverageMeter
 from seq2seq.utils import sync_workers
 
+import kfac
 
 class Seq2SeqTrainer:
     """
@@ -150,7 +151,25 @@ class Seq2SeqTrainer:
         if self.distributed:
             self.model = DistributedDataParallel(self.model)
 
-    def iterate(self, src, tgt, update=True, training=True):
+        
+        #self.preconditioner = None
+        #self.p_scheduler = None
+         
+        self.preconditioner = kfac.KFAC(
+                self.model, 
+                lr=self.opt_config['lr'], 
+                factor_decay=0.95,
+                damping=0.003,
+                kl_clip=0.001,
+                fac_update_freq=1,
+                kfac_update_freq=10,
+                use_eigen_decomp=True,
+                skip_layers=['linear', 'conv2d', 'embedding'])
+        self.p_scheduler = WarmupMultiStepLR(self.preconditioner, train_iterations,
+                                             **scheduler_config)
+         
+
+    def iterate(self, src, tgt, update=True, training=True, iteration=0):
         """
         Performs one iteration of the training/validation.
 
@@ -185,8 +204,12 @@ class Seq2SeqTrainer:
         loss /= (B * self.iter_size)
 
         if training:
-            self.fp_optimizer.step(loss, self.optimizer, self.scheduler,
-                                   update)
+            if iteration == 0:
+                self.fp_optimizer.step(loss, self.optimizer, self.scheduler,
+                                       update)
+            else:
+                self.fp_optimizer.step(loss, self.optimizer, self.scheduler,
+                                       update, self.preconditioner, self.p_scheduler)
 
         loss_per_token = loss_per_batch / num_toks['tgt']
         loss_per_sentence = loss_per_batch / B
@@ -230,7 +253,7 @@ class Seq2SeqTrainer:
                 update = True
 
             # do a train/evaluate iteration
-            stats = self.iterate(src, tgt, update, training=training)
+            stats = self.iterate(src, tgt, update, training=training, iteration=i)
             loss_per_token, loss_per_sentence, num_toks = stats
 
             # measure accuracy and record loss

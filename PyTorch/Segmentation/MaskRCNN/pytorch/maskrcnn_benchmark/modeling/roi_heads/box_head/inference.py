@@ -131,7 +131,7 @@ class PostProcessor(nn.Module):
                 cls_scores.cpu(), number_of_detections - self.detections_per_img + 1
             )
             keep = cls_scores >= image_thresh.item()
-            keep = torch.nonzero(keep).squeeze(1)
+            keep = torch.nonzero(keep, as_tuple=False).squeeze(1)
             result = result[keep]
         return result
 
