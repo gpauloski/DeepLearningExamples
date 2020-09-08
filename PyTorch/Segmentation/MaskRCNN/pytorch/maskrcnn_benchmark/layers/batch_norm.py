@@ -2,8 +2,9 @@
 import torch
 from torch import nn
 
+FrozenBatchNorm2d = nn.BatchNorm2d
 
-class FrozenBatchNorm2d(nn.Module):
+class FrozenBatchNorm2d_(nn.Module):
     """
     BatchNorm2d where the batch statistics and the affine parameters
     are fixed
