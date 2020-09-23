@@ -279,9 +279,9 @@ def parse_arguments():
     parser.add_argument('--kl_clip', type=float, default=0.001,
                         help='KL clip (default: 0.001)')
     parser.add_argument('--skip_layers', nargs='+', type=str, 
-                        default=['BertPreTrainingHeads', 'embedding'],
+                        default=['BertLMPredictionHead', 'embedding'],
                         help='Modules to ignore registering with KFAC '
-                             '(default: [BertPreTrainingHeads, embedding])')
+                             '(default: [BertLMPredictionHead, embedding])')
     args = parser.parse_args()
     
     return args
@@ -384,6 +384,9 @@ def prepare_model_and_optimizer(args, devices):
     #model.to(device)
     model.split_model(devices)
 
+    if is_main_process():
+        print(model)
+
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'gamma', 'beta', 'LayerNorm']
     
@@ -396,6 +399,11 @@ def prepare_model_and_optimizer(args, devices):
     lr_scheduler = PolyWarmUpScheduler(optimizer, 
                                        warmup=args.warmup_proportion, 
                                        total_steps=args.max_steps)
+
+    if args.fp16:
+        scaler = GradScaler()
+    else:
+        scaler = None
 
     # KFAC
     if args.kfac:
@@ -415,18 +423,22 @@ def prepare_model_and_optimizer(args, devices):
             # False b/c we use grad accumulation, accumulating the input/output
             # data will substantially increase memory usage
             accumulate_data=False,
+            comm_method=kfac.CommMethod.MEM_OPT,
             # Compute the factors and update the running averages during the
             # forward backward pass b/c we are using grad accumulation but
             # not accumulating the input/output data
             compute_factor_in_hook=True,
-            distribute_layer_factors=False
+            distribute_layer_factors=False,
+            grad_scaler=scaler,
         )
         lrs = PolyWarmUpScheduler(
-            optimizer, 
+            preconditioner, 
             warmup=args.warmup_proportion, 
             total_steps=args.max_steps
         )
         lr_schedules = [lr_scheduler, lrs]  # We need a scheduler for KFAC as well
+        if is_main_process():
+            print(preconditioner)
     else:
         preconditioner = None
         lr_schedules = [lr_scheduler]
@@ -457,11 +469,6 @@ def prepare_model_and_optimizer(args, devices):
         model = torch.nn.DataParallel(model)
     
     criterion = BertPretrainingCriterion(config.vocab_size)
-
-    if args.fp16:
-        scaler = GradScaler()
-    else:
-        scaler = None
 
     # KFAC: change return params (add preconditioner, lr_scheduler -> lr_schedules)
     return model, optimizer, preconditioner, scaler, lr_schedules, checkpoint, global_step, criterion
@@ -541,7 +548,8 @@ def main():
                 num_files = len(files)
                 # may not exist in all checkpoints
                 epoch = checkpoint.get('epoch', 0)
-                restored_dataloader = checkpoint.get('data_loader', None)
+                restored_data_loader = checkpoint.get('data_loader', None)
+                #restored_dataloader = None  # temp override
 
             shared_file_list = {}
 
@@ -614,7 +622,7 @@ def main():
                         loss = loss / args.gradient_accumulation_steps
                         divisor = 1.0
                     # only sync grads in the step where we call optimizer.step()
-                    if get_world_size() > 1 and step < args.gradient_accumulation_steps:
+                    if get_world_size() > 1 and training_steps % args.gradient_accumulation_steps != 0:
                         with model.no_sync():
                             if scaler is not None:
                                 scaler.scale(loss).backward()
