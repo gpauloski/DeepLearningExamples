@@ -13,20 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-echo "Container nvidia build = " $NVIDIA_BUILD_ID
+#OUT_DIR=results/kfac_squad
+BERT_PREP_WORKING_DIR=data
 
-init_checkpoint=${1:-"/workspace/bert/checkpoints/bert_uncased.pt"}
+init_checkpoint=${1:-"checkpoints/bert_uncased.pt"}
 epochs=${2:-"2.0"}
-batch_size=${3:-"4"}
+batch_size=${3:-"3"}
 learning_rate=${4:-"3e-5"}
 precision=${5:-"fp16"}
-num_gpu=${6:-"8"}
+num_gpu=${6:-"4"}
 seed=${7:-"1"}
 squad_dir=${8:-"$BERT_PREP_WORKING_DIR/download/squad/v1.1"}
 vocab_file=${9:-"$BERT_PREP_WORKING_DIR/download/google_pretrained_weights/uncased_L-24_H-1024_A-16/vocab.txt"}
-OUT_DIR=${10:-"/workspace/bert/results/SQuAD"}
+OUT_DIR=${10:-"results/kfac_squad"}
 mode=${11:-"train eval"}
-CONFIG_FILE=${12:-"/workspace/bert/bert_config.json"}
+CONFIG_FILE=${12:-"bert_config.json"}
 max_steps=${13:-"-1"}
 
 echo "out dir is $OUT_DIR"
@@ -60,8 +61,6 @@ elif [ "$mode" = "eval" ] ; then
   CMD+="--do_predict "
   CMD+="--predict_file=$squad_dir/dev-v1.1.json "
   CMD+="--predict_batch_size=$batch_size "
-  CMD+="--eval_script=$squad_dir/evaluate-v1.1.py "
-  CMD+="--do_eval "
 elif [ "$mode" = "prediction" ] ; then
   CMD+="--do_predict "
   CMD+="--predict_file=$squad_dir/dev-v1.1.json "
@@ -73,11 +72,10 @@ else
   CMD+="--do_predict "
   CMD+="--predict_file=$squad_dir/dev-v1.1.json "
   CMD+="--predict_batch_size=$batch_size "
-  CMD+="--eval_script=$squad_dir/evaluate-v1.1.py "
-  CMD+="--do_eval "
 fi
-
 CMD+=" --do_lower_case "
+# CMD+=" --old "
+# CMD+=" --loss_scale=128 "
 CMD+=" --bert_model=bert-large-uncased "
 CMD+=" --learning_rate=$learning_rate "
 CMD+=" --seed=$seed "
@@ -88,8 +86,28 @@ CMD+=" --output_dir=$OUT_DIR "
 CMD+=" --vocab_file=$vocab_file "
 CMD+=" --config_file=$CONFIG_FILE "
 CMD+=" --max_steps=$max_steps "
+CMD+=" --json-summary=$OUT_DIR/dllogger.json "
 CMD+=" $use_fp16"
 
+mkdir -p $OUT_DIR
 LOGFILE=$OUT_DIR/logfile.txt
 echo "$CMD |& tee $LOGFILE"
 time $CMD |& tee $LOGFILE
+
+#sed -r 's/
+#|([A)/\n/g' $LOGFILE > $LOGFILE.edit
+
+if [ "$mode" != "eval" ]; then
+throughput=`cat $LOGFILE | grep -E 'Iteration.*[0-9.]+(it/s)' | tail -1 | egrep -o '[0-9.]+(s/it|it/s)' | head -1 | egrep -o '[0-9.]+'`
+train_perf=$(awk 'BEGIN {print ('$throughput' * '$num_gpu' * '$batch_size')}')
+echo " training throughput: $train_perf"
+fi
+
+if [ "$mode" != "train" ]; then
+    if [ "$mode" != "prediction" ]; then
+        python $squad_dir/evaluate-v1.1.py $squad_dir/dev-v1.1.json $OUT_DIR/predictions.json |& tee -a $LOGFILE
+        eval_throughput=`cat $LOGFILE | grep Evaluating | tail -1 | awk -F ','  '{print $2}' | egrep -o '[0-9.]+' | head -1 | egrep -o '[0-9.]+'`
+        eval_perf=$(awk 'BEGIN {print ('$eval_throughput' * '$num_gpu' * '$batch_size')}')
+        echo " evaluation throughput: $eval_perf"
+    fi
+fi

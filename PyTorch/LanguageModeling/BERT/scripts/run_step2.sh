@@ -41,6 +41,9 @@ while [ "$1" != "" ]; do
         --output)
             OUTPUT=$VALUE
         ;;
+        --resume)
+            RESUME=$VALUE
+        ;;
         --mvapich)
             MVAPICH=true
         ;;
@@ -72,7 +75,17 @@ if [ "$KFAC" == "true" ] ; then
   KWARGS+=" --kl_clip 0.001"
 fi
 
+if [ "$RESUME" == "true" ] ; then
+  KWARGS+=" --resume_from_checkpoint"
+fi
+
 which python
+
+GLOBAL_BATCH_SIZE=32768
+GLOBAL_NGPUS=$(($NGPUS * $NNODES))
+ACCUMULATED_BATCH_SIZE=$(($GLOBAL_BATCH_SIZE / $GLOBAL_NGPUS))
+PER_GPU_BATCH_SIZE=8
+ACCUMULATION_STEPS=$(($ACCUMULATED_BATCH_SIZE / $PER_GPU_BATCH_SIZE))
 
 python -m torch.distributed.launch \
    --nproc_per_node=$NGPUS \
@@ -81,7 +94,7 @@ python -m torch.distributed.launch \
    --master_addr=$MASTER \
  run_pretraining.py \
     --seed=5632 \
-    --train_batch_size=1024 \
+    --train_batch_size=$ACCUMULATED_BATCH_SIZE \
     --learning_rate=4e-3 \
     --input_dir=data/hdf5_lower_case_1_seq_len_128_max_pred_20_masked_lm_prob_0.15_random_seed_12345_dupe_factor_5/books_wiki_en_corpus \
     --bert_model=bert-large-uncased \
@@ -91,12 +104,10 @@ python -m torch.distributed.launch \
     --num_steps_per_checkpoint=100 \
     --warmup_proportion=0.128 \
     --do_train \
-    --gradient_accumulation_steps=256 \
+    --gradient_accumulation_steps=$ACCUMULATION_STEPS \
     --config_file=bert_config.json \
     --output_dir=$OUTPUT \
     --fp16 \
-    --split_model \
     --phase2 \
-    --resume_from_checkpoint \
-    --phase1_end_step=4200 \
+    --phase1_end_step=7138 \
     $KWARGS
