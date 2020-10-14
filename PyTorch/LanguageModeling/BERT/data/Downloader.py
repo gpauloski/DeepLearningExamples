@@ -17,6 +17,7 @@ from WikiDownloader import WikiDownloader
 from BooksDownloader import BooksDownloader
 from MRPCDownloader import MRPCDownloader
 from SquadDownloader import SquadDownloader
+from CORD19Downloader import CORD19Downloader
 
 
 class Downloader:
@@ -46,6 +47,9 @@ class Downloader:
 
         elif self.dataset_name == 'squad':
             self.download_squad()
+
+        elif self.dataset_name == 'cord19':
+            self.download_cord19()
 
         elif self.dataset_name == 'all':
             self.download_bookscorpus(self.save_path)
@@ -88,4 +92,9 @@ class Downloader:
 
     def download_squad(self):
         downloader = SquadDownloader(self.save_path)
+        downloader.download()
+
+
+    def download_cord19(self):
+        downloader = CORD19Downloader(self.save_path)
         downloader.download()

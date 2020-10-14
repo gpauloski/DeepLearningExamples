@@ -15,6 +15,7 @@ import BookscorpusTextFormatting
 import Downloader
 import TextSharding
 import WikicorpusTextFormatting
+import CORD19TextFormatting
 
 import argparse
 import itertools
@@ -104,9 +105,23 @@ def main(args):
             
             assert os.stat(output_filename).st_size > 0, 'File glob did not pick up extracted wiki files from WikiExtractor.'
 
+        elif args.dataset == 'cord19':
+            cord19_formatted_file = directory_structure['formatted'] + '/cord19_one_article_per_line.txt'
+            cord19_formatter = CORD19TextFormatting.CORD19TextFormatter(
+                    data_path=directory_structure['download'] + '/cord19/document_parses',
+                    output_file=cord19_formatted_file)
+            if os.path.isfile(cord19_formatted_file):
+                print('CORD19 formatted file ({}) already exists. Skipping'.format(
+                        cord19_formatted_file))
+            else:
+               cord19_formatter.merge()
+
     elif args.action == 'sharding':
         # Note: books+wiki requires user to provide list of input_files (comma-separated with no spaces)
-        if args.dataset == 'bookscorpus' or 'wikicorpus' in args.dataset or 'books_wiki' in args.dataset:
+        if args.dataset == 'bookscorpus' or \
+                'wikicorpus' in args.dataset or \
+                'books_wiki' in args.dataset or \
+                args.dataset == 'cord19':
             if args.input_files is None:
                 if args.dataset == 'bookscorpus':
                     args.input_files = [directory_structure['formatted'] + '/bookscorpus_one_book_per_line.txt']
@@ -116,6 +131,8 @@ def main(args):
                     args.input_files = [directory_structure['formatted'] + '/wikicorpus_zh_one_article_per_line.txt']
                 elif args.dataset == 'books_wiki_en_corpus':
                     args.input_files = [directory_structure['formatted'] + '/bookscorpus_one_book_per_line.txt', directory_structure['formatted'] + '/wikicorpus_en_one_article_per_line.txt']
+                elif args.dataset == 'cord19':
+                    args.input_files = [directory_structure['formatted'] + '/cord19_one_article_per_line.txt']
 
             output_file_prefix = directory_structure['sharded'] + '/' + args.dataset + '/' + args.dataset
 
@@ -147,7 +164,7 @@ def main(args):
             os.makedirs(directory_structure['tfrecord'] + "/" + args.dataset)
 
         def create_record_worker(filename_prefix, shard_id, output_format='tfrecord'):
-            bert_preprocessing_command = 'python /workspace/bert/create_pretraining_data.py'
+            bert_preprocessing_command = 'python create_pretraining_data.py'
             bert_preprocessing_command += ' --input_file=' + directory_structure['sharded'] + '/' + args.dataset + '/' + filename_prefix + '_' + str(shard_id) + '.txt'
             bert_preprocessing_command += ' --output_file=' + directory_structure['tfrecord'] + '/' + args.dataset + '/' + filename_prefix + '_' + str(shard_id) + '.' + output_format
             bert_preprocessing_command += ' --vocab_file=' + args.vocab_file
@@ -186,7 +203,7 @@ def main(args):
             os.makedirs(directory_structure['hdf5'] + "/" + args.dataset)
 
         def create_record_worker(filename_prefix, shard_id, output_format='hdf5'):
-            bert_preprocessing_command = 'python /workspace/bert/create_pretraining_data.py'
+            bert_preprocessing_command = 'python create_pretraining_data.py'
             bert_preprocessing_command += ' --input_file=' + directory_structure['sharded'] + '/' + args.dataset + '/' + filename_prefix + '_' + str(shard_id) + '.txt'
             bert_preprocessing_command += ' --output_file=' + directory_structure['hdf5'] + '/' + args.dataset + '/' + filename_prefix + '_' + str(shard_id) + '.' + output_format
             bert_preprocessing_command += ' --vocab_file=' + args.vocab_file
@@ -249,6 +266,7 @@ if __name__ == "__main__":
             'nvidia_pretrained_weights',
             'mrpc',
             'squad',
+            'cord19',
             'all'
         }
     )
