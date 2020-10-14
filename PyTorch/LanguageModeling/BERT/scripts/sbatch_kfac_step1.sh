@@ -45,4 +45,4 @@ PROC_PER_NODE=4
 
 mpirun_rsh --export-all -np $NODES -hostfile $HOSTFILE \
     bash scripts/run_step1.sh  --ngpus $PROC_PER_NODE --nnodes $NODES \
-        --master $MASTER_RANK --output results/kfac_step1 --kfac true --resume true --mvapich
+        --master $MASTER_RANK --output results/kfac_step1_short --kfac true --resume true --mvapich

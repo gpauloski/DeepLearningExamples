@@ -96,7 +96,7 @@ python -m torch.distributed.launch \
     --seed=5632 \
     --train_batch_size=$ACCUMULATED_BATCH_SIZE \
     --learning_rate=4e-3 \
-    --input_dir=data/hdf5_lower_case_1_seq_len_128_max_pred_20_masked_lm_prob_0.15_random_seed_12345_dupe_factor_5/books_wiki_en_corpus \
+    --input_dir=data/hdf5_lower_case_1_seq_len_512_max_pred_80_masked_lm_prob_0.15_random_seed_12345_dupe_factor_5/books_wiki_en_corpus \
     --bert_model=bert-large-uncased \
     --max_seq_length=512 \
     --max_steps=1563 \
@@ -109,5 +109,5 @@ python -m torch.distributed.launch \
     --output_dir=$OUTPUT \
     --fp16 \
     --phase2 \
-    --phase1_end_step=7138 \
+    --phase1_end_step=2600 \
     $KWARGS
