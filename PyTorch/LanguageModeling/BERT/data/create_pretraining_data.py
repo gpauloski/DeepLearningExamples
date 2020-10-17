@@ -25,12 +25,14 @@ import h5py
 import numpy as np
 from tqdm import tqdm, trange
 
+import sys
+sys.path.insert(0, '..')
+
 from tokenization import BertTokenizer
 import tokenization as tokenization
 
 import random
 import collections
-
 
 
 
@@ -377,7 +379,8 @@ def truncate_seq_pair(tokens_a, tokens_b, max_num_tokens, rng):
     # We want to sometimes truncate from the front and sometimes from the
     # back to add more randomness and avoid biases.
     if rng.random() < 0.5:
-      del trunc_tokens[0]
+      #del trunc_tokens[0]
+      trunc_tokens.pop(0)
     else:
       trunc_tokens.pop()
 
