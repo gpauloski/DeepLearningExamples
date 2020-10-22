@@ -162,13 +162,13 @@ def train(cfg, local_rank, distributed, use_kfac=False):
     #if use_larc:
     #    optimizer = LARC(optimizer)
     if use_kfac:
-        if local_rank == 0:
+        if get_rank() == 0:
             print(model)
         preconditioner = kfac.KFAC(
                 model, 
                 damping=0.003,
-                factor_decay=0.99,
-                inv_update_freq=10,
+                factor_decay=0.95,
+                inv_update_freq=100,
                 factor_update_freq=1,
                 kl_clip=0.001,
                 lr=cfg.SOLVER.BASE_LR,
@@ -185,9 +185,7 @@ def train(cfg, local_rank, distributed, use_kfac=False):
                 use_eigen_decomp=True,
                 # The extractor has a very large linear layer so we skip it
                 # because inversion will be slow
-                #skip_layers=['FPN2MLPFeatureExtractor', 'Linear'],
                 skip_layers=['FPN2MLPFeatureExtractor', 'CombinedROIHeads', 'RPNModule', 'FPN'],
-                #skip_layers=['FPN2MLPFeatureExtractor', 'Conv2d'],
                 verbose=True
         )
         p_scheduler = make_lr_scheduler(cfg, preconditioner)
