@@ -1,31 +1,34 @@
-import sentencepiece as spm
-import tqdm
-
-from nltk import tokenize
+from tokenizers import BertWordPieceTokenizer
 
 input_file = 'formatted_one_article_per_line/cord19_one_article_per_line.txt'
-raw_vocab_file = 'm.input'
 vocab_file = '../vocab/cord19_vocab.txt'
 
-with open(input_file) as fi:
-    with open(raw_vocab_file, 'w') as fo:
-        for line in tqdm.tqdm(fi.readlines()):
-            sentences = tokenize.sent_tokenize(line)
-            for sentence in sentences:
-                fo.write(sentence + '\n')
+# Initialize an empty BERT tokenizer
+tokenizer = BertWordPieceTokenizer(
+  clean_text=False,
+  handle_chinese_chars=False,
+  strip_accents=False,
+  lowercase=True,
+)
 
-spm.SentencePieceTrainer.train('--input=m.input --model_prefix=m '
-        '--vocab_size=30000 --max_sentence_length=60000 --model_type=unigram '
-        '--shuffle_input_sentence=true --input_sentence_size=10000 '
-        '--add_dummy_prefix=false --hard_vocab_limit=false'
-    )
+# prepare text files to train vocab on them
+files = [input_file]
 
-sp = spm.SentencePieceProcessor()
-sp.load('m.model')
+# train BERT tokenizer
+tokenizer.train(
+  files,
+  vocab_size=31000,
+  min_frequency=2,
+  show_progress=True,
+  special_tokens=['[PAD]', '[UNK]', '[CLS]', '[SEP]', '[MASK]'],
+  limit_alphabet=1000,
+  wordpieces_prefix="##"
+)
 
-vocabs = [sp.id_to_piece(id) for id in range(sp.get_piece_size())]
-
+# save the vocab
+vocab = [v for v in tokenizer.get_vocab()]
+vocab.sort()
 with open(vocab_file, 'w') as f:
-    for vocab in vocabs:
-        f.write(vocab + '\n')
-print('Vocab written to ' + vocab_file)
+    for v in vocab:
+        f.write(v + '\n')
+
