@@ -3,6 +3,7 @@ data/formatted_one_article_per_line/
 data/download/
 data/sharded*/
 data/extracted/
+data/m.*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

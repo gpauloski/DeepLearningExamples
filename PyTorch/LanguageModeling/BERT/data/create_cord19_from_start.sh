@@ -4,9 +4,9 @@ export BERT_PREP_WORKING_DIR='.'
 DATASET=cord19
 VOCAB_FILE=../vocab/cord19_vocab.txt
 
-python bertPrep.py --action download --dataset $DATASET
-python bertPrep.py --action text_formatting --dataset $DATASET
-python bertPrep.py --action sharding --dataset $DATASET
+#python bertPrep.py --action download --dataset $DATASET
+#python bertPrep.py --action text_formatting --dataset $DATASET
+#python bertPrep.py --action sharding --dataset $DATASET
 
 # Create HDF5 files Phase 1
 python bertPrep.py --action create_hdf5_files --dataset $DATASET \
