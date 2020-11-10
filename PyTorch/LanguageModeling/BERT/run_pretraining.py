@@ -384,8 +384,8 @@ def prepare_model_and_optimizer(args, devices):
     #model.to(device)
     model.split_model(devices)
 
-    if is_main_process():
-        print(model)
+    #if is_main_process():
+    #    print(model)
 
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'gamma', 'beta', 'LayerNorm']
@@ -430,6 +430,7 @@ def prepare_model_and_optimizer(args, devices):
             compute_factor_in_hook=True,
             distribute_layer_factors=False,
             grad_scaler=scaler,
+            verbose=False,
         )
         lrs = PolyWarmUpScheduler(
             preconditioner, 
