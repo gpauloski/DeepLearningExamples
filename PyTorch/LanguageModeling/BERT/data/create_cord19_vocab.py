@@ -1,7 +1,7 @@
 from tokenizers import BertWordPieceTokenizer
 
 input_file = 'formatted_one_article_per_line/cord19_one_article_per_line.txt'
-vocab_file = '../vocab/cord19_vocab.txt'
+vocab_file = '../vocab/cord19_500k_vocab.txt'
 
 # Initialize an empty BERT tokenizer
 tokenizer = BertWordPieceTokenizer(
@@ -17,7 +17,7 @@ files = [input_file]
 # train BERT tokenizer
 tokenizer.train(
   files,
-  vocab_size=31000,
+  vocab_size=500000,
   min_frequency=2,
   show_progress=True,
   special_tokens=['[PAD]', '[UNK]', '[CLS]', '[SEP]', '[MASK]'],

@@ -541,9 +541,13 @@ class BertEncoder(nn.Module):
         # - the layers only switch devices once, i.e. for 4 layers, the device ids are
         #   0, 0, 1, 1 and not 0, 1, 0, 1. This reduces the number of times we need to
         #   transfer data between devices
-        self.split_layer = int(len(self.layer) / len(devices))
-        for i, layer in enumerate(self.layer):
-            layer.to(devices[0] if i < self.split_layer else devices[1])
+        if len(devices) == 2:
+            self.split_layer = int(len(self.layer) / len(devices)) - 1
+            for i, layer in enumerate(self.layer):
+                layer.to(devices[0] if i < self.split_layer else devices[1])
+        else:
+            for i, layer in enumerate(self.layer):
+                layer.to(devices[0])
  
 
 class BertPooler(nn.Module):

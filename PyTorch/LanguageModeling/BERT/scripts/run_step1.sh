@@ -84,6 +84,7 @@ which python
 GLOBAL_BATCH_SIZE=65536
 GLOBAL_NGPUS=$(($NGPUS * $NNODES))
 ACCUMULATED_BATCH_SIZE=$(($GLOBAL_BATCH_SIZE / $GLOBAL_NGPUS))
+# Normally use batch size of 8 but drop to test with comm-opt
 PER_GPU_BATCH_SIZE=8
 ACCUMULATION_STEPS=$(($ACCUMULATED_BATCH_SIZE / $PER_GPU_BATCH_SIZE))
 
@@ -111,3 +112,6 @@ python -m torch.distributed.launch \
     --output_dir=$OUTPUT \
     --fp16 \
     $KWARGS
+
+
+

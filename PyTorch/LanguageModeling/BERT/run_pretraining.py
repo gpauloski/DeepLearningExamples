@@ -428,6 +428,7 @@ def prepare_model_and_optimizer(args, devices):
             # forward backward pass b/c we are using grad accumulation but
             # not accumulating the input/output data
             compute_factor_in_hook=True,
+            grad_worker_fraction=0,
             distribute_layer_factors=False,
             grad_scaler=scaler,
             verbose=False,

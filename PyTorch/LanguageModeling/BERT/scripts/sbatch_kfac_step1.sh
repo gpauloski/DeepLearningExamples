@@ -18,11 +18,11 @@
 mkdir -p sbatch_logs
 
 module load conda
+conda activate pytorch
 module unload spectrum_mpi
 module use /home/01255/siliu/mvapich2-gdr/modulefiles/
 module load gcc/7.3.0 
 module load mvapich2-gdr/2.3.4
-conda activate pytorch
 
 export MV2_USE_CUDA=1
 export MV2_ENABLE_AFFINITY=1
@@ -45,4 +45,4 @@ PROC_PER_NODE=4
 
 mpirun_rsh --export-all -np $NODES -hostfile $HOSTFILE \
     bash scripts/run_step1.sh  --ngpus $PROC_PER_NODE --nnodes $NODES \
-        --master $MASTER_RANK --output results/kfac_step1_short --kfac true --resume true --mvapich
+        --master $MASTER_RANK --output results/kfac_step1 --kfac true --resume false --mvapich

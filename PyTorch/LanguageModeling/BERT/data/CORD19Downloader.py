@@ -8,7 +8,7 @@ class CORD19Downloader:
         if not os.path.exists(self.save_path):
             os.makedirs(self.save_path)
 
-        self.download_url = 'https://ai2-semanticscholar-cord-19.s3-us-west-2.amazonaws.com/historical_releases/cord-19_2020-10-01.tar.gz'
+        self.download_url = 'https://ai2-semanticscholar-cord-19.s3-us-west-2.amazonaws.com/historical_releases/cord-19_2020-10-04.tar.gz'
 
     def download(self):
         doc_parses_tarfile = os.path.join(self.save_path, 'document_parses.tar.gz')

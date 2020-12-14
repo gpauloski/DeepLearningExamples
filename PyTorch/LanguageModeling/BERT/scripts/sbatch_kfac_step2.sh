@@ -41,8 +41,8 @@ cat $HOSTFILE
 
 MASTER_RANK=$(head -n 1 $HOSTFILE)
 NODES=$(< $HOSTFILE wc -l)
-PROC_PER_NODE=4
+PROC_PER_NODE=2
 
 mpirun_rsh --export-all -np $NODES -hostfile $HOSTFILE \
     bash scripts/run_step2.sh  --ngpus $PROC_PER_NODE --nnodes $NODES \
-        --master $MASTER_RANK --output results/kfac_step2_medium --kfac false --resume true --mvapich
+        --master $MASTER_RANK --output results/kfac_step2 --kfac true --resume true --mvapich
