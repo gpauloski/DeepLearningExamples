@@ -1,3 +1,8 @@
+hostfile
+sbatch_logs
+wikiextractor
+bookcorpus
+
 # Initially taken from Github's Python gitignore file
 data/formatted_one_article_per_line/
 data/download/
