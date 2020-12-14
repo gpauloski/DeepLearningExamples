@@ -1,6 +1,8 @@
+logs/
 slurm/
 results/
 joblogs/
+hostfile
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

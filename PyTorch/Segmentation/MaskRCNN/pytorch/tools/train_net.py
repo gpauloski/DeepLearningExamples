@@ -168,8 +168,8 @@ def train(cfg, local_rank, distributed, use_kfac=False):
                 model, 
                 damping=0.003,
                 factor_decay=0.95,
-                inv_update_freq=100,
-                factor_update_freq=1,
+                inv_update_freq=500,
+                factor_update_freq=50,
                 kl_clip=0.001,
                 lr=cfg.SOLVER.BASE_LR,
                 # Just use data from most recent forward/backward pass 
@@ -181,11 +181,13 @@ def train(cfg, local_rank, distributed, use_kfac=False):
                 accumulate_data=True,
                 batch_first=True,
                 compute_factor_in_hook=False,
+                comm_method=kfac.CommMethod.COMM_OPT,
                 distribute_layer_factors=False,
+                grad_worker_fraction=1.0,
                 use_eigen_decomp=True,
                 # The extractor has a very large linear layer so we skip it
                 # because inversion will be slow
-                skip_layers=['FPN2MLPFeatureExtractor', 'CombinedROIHeads', 'RPNModule', 'FPN'],
+                skip_layers=['FPN2MLPFeatureExtractor', 'ResNet', 'RPNModule', 'FPN'],
                 verbose=True
         )
         p_scheduler = make_lr_scheduler(cfg, preconditioner)

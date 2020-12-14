@@ -67,11 +67,12 @@ else
     tools/train_net.py \
       --config-file $CONFIG \
       --kfac \
-      PER_EPOCH_EVAL True \
+      PER_EPOCH_EVAL False \
       MIN_BBOX_MAP 0.377 \
       MIN_MASK_MAP 0.342 \
       DTYPE "float32" \
       OUTPUT_DIR $RESULTS \
       | tee "${RESULTS}/${LOGFILE}"
 fi
+
 

@@ -1,12 +1,12 @@
 #!/bin/bash
 
-scontrol show hostnames $SLURM_NODELIST > /tmp/hostfile
+#scontrol show hostnames $SLURM_NODELIST > /tmp/hostfile
 cat /tmp/hostfile
 
 MASTER=$(head -n 1 /tmp/hostfile)
 NGPUS=4
 NNODES=$(< /tmp/hostfile wc -l)
-CONFIG="configs/e2e_mask_rcnn_R_50_FPN_1x_8GPU_32.yaml"
+CONFIG="configs/e2e_mask_rcnn_R_50_FPN_1x_64GPU.yaml"
 
 module load conda
 module unload spectrum_mpi
@@ -25,4 +25,4 @@ export MV2_USE_RDMA_CM=0
 export MV2_SUPPORT_DL=1
 
 mpirun_rsh --export-all -np $NNODES -hostfile /tmp/hostfile \
-    ./scripts/run_on_node.sh -n $NGPUS -N $NNODES -m $MASTER -c $CONFIG -r results_kfac_batch_norm
+    ./scripts/run_on_node.sh -n $NGPUS -N $NNODES -m $MASTER -c $CONFIG -r kfac_logs
